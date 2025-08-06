@@ -32,10 +32,10 @@ export const StickyNoteItem = ({ note, onDelete, onUpdate }: Props) => {
     <Rnd
       size={{ width: note.size.width, height: note.size.height }}
       position={{ x: note.position.x, y: note.position.y }}
-      onDragStop={(e, d) => {
+      onDragStop={(_e, d) => {
         onUpdate(note.id, { position: { x: d.x, y: d.y } });
       }}
-      onResizeStop={(e, direction, ref, delta, position) => {
+      onResizeStop={(_e, _direction, ref, _delta, position) => {
         onUpdate(note.id, {
           size: {
             width: parseInt(ref.style.width),

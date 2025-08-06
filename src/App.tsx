@@ -63,7 +63,7 @@ function App() {
 
   // 3. 付箋の作成
   const createNote = async (x: number, y: number) => {
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("sticky_notes")
       .insert({
         position: { x, y },
