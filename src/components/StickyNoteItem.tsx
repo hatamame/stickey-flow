@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Rnd } from "react-rnd";
-import type { ResizableDelta, DraggableData } from "react-rnd";
+import type { ResizableDelta } from "react-rnd";
 import { motion } from "framer-motion";
+import type { PanInfo } from "framer-motion";
 import { X, User, Tags } from "lucide-react";
 import type { StickyNote } from "../types";
 import { colorHexMap } from "./ColorPalette";
@@ -26,15 +27,10 @@ export const StickyNoteItem = ({ note, onDelete, onUpdate }: Props) => {
     const newTags = tagsInput
       .split(",")
       .map((tag) => tag.trim())
-      .filter((tag) => tag);
-    // 配列を比較するためにJSON文字列化する
+      .filter(Boolean);
     if (JSON.stringify(note.tags || []) !== JSON.stringify(newTags)) {
       onUpdate(note.id, { tags: newTags });
     }
-  };
-
-  const handleDragStop = (_e: any, d: DraggableData) => {
-    onUpdate(note.id, { position: { x: d.x, y: d.y } });
   };
 
   const handleResizeStop = (
@@ -55,7 +51,7 @@ export const StickyNoteItem = ({ note, onDelete, onUpdate }: Props) => {
 
   return (
     <motion.div
-      layout
+      layoutId={note.id}
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.8 }}
@@ -68,7 +64,7 @@ export const StickyNoteItem = ({ note, onDelete, onUpdate }: Props) => {
       }}
       drag
       dragMomentum={false}
-      onDragEnd={(_e, info) => {
+      onDragEnd={(_e: any, info: PanInfo) => {
         onUpdate(note.id, {
           position: {
             x: note.position.x + info.offset.x,
@@ -82,12 +78,12 @@ export const StickyNoteItem = ({ note, onDelete, onUpdate }: Props) => {
         onResizeStop={handleResizeStop}
         className="shadow-lg rounded-md flex flex-col"
         minWidth={200}
-        minHeight={150}
+        minHeight={160}
         style={{
           backgroundColor: colorHexMap[note.color] || "#E5E7EB",
-          position: "static", // Rndのpositionはmotion.divが管理
+          position: "static",
         }}
-        disableDragging // ドラッグはmotion.divに任せる
+        disableDragging={true}
       >
         <div className="p-3 flex-grow flex flex-col h-full">
           <button
@@ -97,9 +93,9 @@ export const StickyNoteItem = ({ note, onDelete, onUpdate }: Props) => {
             <X size={16} />
           </button>
 
-          <div className="flex items-center gap-1 text-xs text-gray-600 mb-1 opacity-80">
+          <div className="flex items-center gap-1.5 text-xs text-gray-600 mb-1 opacity-80">
             <User size={12} />
-            <span>{note.author?.split("@")[0]}</span>
+            <span>{note.author?.username || "不明"}</span>
           </div>
 
           <textarea

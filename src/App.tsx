@@ -4,22 +4,28 @@ import type { Session } from "@supabase/supabase-js";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { AnimatePresence } from "framer-motion";
-import type { StickyNote } from "./types";
+import type { StickyNote, Profile } from "./types";
 import { StickyNoteItem } from "./components/StickyNoteItem";
 import { PlusSquare, LogOut } from "lucide-react";
 import { ColorPalette } from "./components/ColorPalette";
+import { AccountSetup } from "./components/AccountSetup";
 
 function App() {
   const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(true);
   const [notes, setNotes] = useState<StickyNote[]>([]);
   const [selectedColor, setSelectedColor] =
     useState<StickyNote["color"]>("yellow");
 
   useEffect(() => {
+    // 最初に現在のセッション情報を取得
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      setLoadingProfile(false);
     });
 
+    // 認証状態（ログイン、ログアウトなど）の変化を監視
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -30,17 +36,46 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // ログインしていない場合はノートを取得しない
+    if (session) {
+      getProfile();
+    }
+  }, [session]);
+
+  const getProfile = async () => {
     if (!session) return;
+    try {
+      setLoadingProfile(true);
+      const { user } = session;
+      const { data, error, status } = await supabase
+        .from("profiles")
+        .select(`*`)
+        .eq("id", user.id)
+        .single();
+
+      if (error && status !== 406) throw error;
+      if (data) setProfile(data);
+    } catch (error: any) {
+      alert(error.message);
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!session?.user || !profile?.username) return;
 
     const fetchNotes = async () => {
       const { data, error } = await supabase
         .from("sticky_notes")
-        .select("*")
+        .select("*, author:profiles(username)")
         .order("created_at", { ascending: true });
 
-      if (error) console.error("Error fetching notes:", error);
-      else setNotes(data as StickyNote[]);
+      if (error) {
+        console.error("Error fetching notes:", error);
+      } else {
+        // anyで一旦型エラーを回避（Supabaseの型生成を使えばより厳密にできます）
+        setNotes(data as any);
+      }
     };
     fetchNotes();
 
@@ -49,17 +84,18 @@ function App() {
       .on<StickyNote>(
         "postgres_changes",
         { event: "*", schema: "public", table: "sticky_notes" },
-        (payload) => {
+        (payload: any) => {
+          // payloadもanyで受ける
           if (payload.eventType === "INSERT") {
             setNotes((currentNotes) => [
               ...currentNotes.filter((n) => !n.id.startsWith("temp-")),
-              payload.new as StickyNote,
+              payload.new,
             ]);
           }
           if (payload.eventType === "UPDATE") {
             setNotes((currentNotes) =>
               currentNotes.map((note) =>
-                note.id === payload.new.id ? (payload.new as StickyNote) : note
+                note.id === payload.new.id ? payload.new : note
               )
             );
           }
@@ -75,7 +111,7 @@ function App() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [session]);
+  }, [session, profile]);
 
   const createNote = async (x: number, y: number) => {
     if (!session) return;
@@ -90,7 +126,8 @@ function App() {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       votes: 0,
-      author: session.user.email || "Unknown",
+      author: { username: profile?.username || "自分" },
+      author_id: session.user.id,
       tags: [],
     };
 
@@ -101,7 +138,7 @@ function App() {
       size: { width: 200, height: 150 },
       color: selectedColor,
       content: "",
-      author: session.user.email,
+      author_id: session.user.id,
       tags: [],
     });
 
@@ -127,20 +164,24 @@ function App() {
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq("id", id);
 
-    if (error) {
-      console.error("Error updating note:", error);
-    }
+    if (error) console.error("Error updating note:", error);
   };
 
   const deleteNote = async (id: string) => {
     setNotes((currentNotes) => currentNotes.filter((note) => note.id !== id));
-
     if (id.startsWith("temp-")) return;
 
     const { error } = await supabase.from("sticky_notes").delete().eq("id", id);
-
     if (error) console.error("Error deleting note:", error);
   };
+
+  if (loadingProfile) {
+    return (
+      <div className="w-full h-screen flex justify-center items-center bg-gray-100">
+        読み込み中...
+      </div>
+    );
+  }
 
   if (!session) {
     return (
@@ -155,6 +196,10 @@ function App() {
         </div>
       </div>
     );
+  }
+
+  if (!profile?.username) {
+    return <AccountSetup session={session} onProfileUpdated={getProfile} />;
   }
 
   return (
@@ -192,10 +237,6 @@ function App() {
         >
           <PlusSquare size={32} />
         </button>
-      </div>
-
-      <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-white p-2 rounded-lg shadow-md text-sm text-gray-600">
-        ボードをダブルクリック or 右下の「+」ボタンで付箋を追加
       </div>
     </div>
   );
