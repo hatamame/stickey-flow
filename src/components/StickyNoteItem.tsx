@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { Rnd } from "react-rnd";
-import type { ResizableDelta } from "react-rnd";
+import type { ResizableDelta, DraggableData, Position } from "react-rnd";
 import { motion } from "framer-motion";
-import type { PanInfo } from "framer-motion";
 import { X, User, Tags } from "lucide-react";
 import type { StickyNote } from "../types";
 import { colorHexMap } from "./ColorPalette";
@@ -33,76 +32,63 @@ export const StickyNoteItem = ({ note, onDelete, onUpdate }: Props) => {
     }
   };
 
+  const handleDragStop = (_e: any, d: DraggableData) => {
+    onUpdate(note.id, { position: { x: d.x, y: d.y } });
+  };
+
   const handleResizeStop = (
     _e: any,
     _dir: any,
     ref: HTMLElement,
     _delta: ResizableDelta,
-    position: { x: number; y: number }
+    position: Position
   ) => {
     onUpdate(note.id, {
       size: {
-        width: parseInt(ref.style.width),
-        height: parseInt(ref.style.height),
+        width: ref.offsetWidth,
+        height: ref.offsetHeight,
       },
       position,
     });
   };
 
   return (
-    <motion.div
-      layoutId={note.id}
-      initial={{ opacity: 0, scale: 0.8 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.8 }}
-      transition={{ type: "spring", stiffness: 300, damping: 30 }}
-      style={{
-        position: "absolute",
-        x: note.position.x,
-        y: note.position.y,
-        zIndex: 10,
-      }}
-      drag
-      dragMomentum={false}
-      onDragEnd={(_e: any, info: PanInfo) => {
-        onUpdate(note.id, {
-          position: {
-            x: note.position.x + info.offset.x,
-            y: note.position.y + info.offset.y,
-          },
-        });
-      }}
+    <Rnd
+      position={{ x: note.position.x, y: note.position.y }}
+      size={{ width: note.size.width, height: note.size.height }}
+      onDragStop={handleDragStop}
+      onResizeStop={handleResizeStop}
+      minWidth={200}
+      minHeight={160}
+      className="z-10 react-rnd" // Added a class for easier event target detection
+      cancel=".cancel-drag"
     >
-      <Rnd
-        size={{ width: note.size.width, height: note.size.height }}
-        onResizeStop={handleResizeStop}
-        className="shadow-lg rounded-md flex flex-col"
-        minWidth={200}
-        minHeight={160}
+      <motion.div
+        className="shadow-lg rounded-md flex flex-col w-full h-full"
         style={{
           backgroundColor: colorHexMap[note.color] || "#E5E7EB",
-          position: "static",
         }}
-        disableDragging={true}
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.8 }}
+        transition={{ type: "spring", stiffness: 300, damping: 25 }}
       >
-        <div className="p-3 flex-grow flex flex-col h-full">
+        <div className="p-3 flex-grow flex flex-col h-full w-full">
           <button
             onClick={() => onDelete(note.id)}
-            className="absolute top-2 right-2 text-gray-500 hover:text-black z-10"
+            className="absolute top-2 right-2 text-gray-500 hover:text-black z-20"
           >
             <X size={16} />
           </button>
-
           <div className="flex items-center gap-1.5 text-xs text-gray-600 mb-1 opacity-80">
             <User size={12} />
             <span>{note.author?.username || "不明"}</span>
           </div>
-
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
             onBlur={handleContentBlur}
-            className="flex-grow w-full bg-transparent resize-none focus:outline-none text-base"
+            className="flex-grow w-full bg-transparent resize-none focus:outline-none text-base cancel-drag"
             placeholder="アイデアを入力..."
           />
           <div className="mt-auto pt-1 border-t border-gray-400/30">
@@ -123,13 +109,13 @@ export const StickyNoteItem = ({ note, onDelete, onUpdate }: Props) => {
                 value={tagsInput}
                 onChange={(e) => setTagsInput(e.target.value)}
                 onBlur={handleTagsBlur}
-                className="w-full bg-transparent text-sm focus:outline-none placeholder-gray-400"
+                className="w-full bg-transparent text-sm focus:outline-none placeholder-gray-400 cancel-drag"
                 placeholder="タグをカンマ区切りで..."
               />
             </div>
           </div>
         </div>
-      </Rnd>
-    </motion.div>
+      </motion.div>
+    </Rnd>
   );
 };
