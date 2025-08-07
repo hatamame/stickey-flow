@@ -11,7 +11,7 @@ import { ColorPalette } from "./components/ColorPalette";
 import { AccountSetup } from "./components/AccountSetup";
 
 const DEFAULT_NOTE_WIDTH = 200;
-const DEFAULT_NOTE_HEIGHT = 200;
+const DEFAULT_NOTE_HEIGHT = 160;
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 2;
 
@@ -132,20 +132,18 @@ function App() {
       content: "",
       author_id: session.user.id,
       tags: [],
+      is_locked: true, // Add this line to set the default lock state
     });
     if (error) console.error("Error creating note:", error);
   };
 
   const updateNote = async (id: string, updates: Partial<StickyNote>) => {
-    // --- OPTIMISTIC UPDATE ---
-    // First, update the local state for a snappy UI response.
     setNotes((currentNotes) =>
       currentNotes.map((note) =>
         note.id === id ? { ...note, ...updates } : note
       )
     );
 
-    // Then, send the update to the database.
     const { error } = await supabase
       .from("sticky_notes")
       .update({ ...updates, updated_at: new Date().toISOString() })
@@ -153,23 +151,18 @@ function App() {
 
     if (error) {
       console.error("Error updating note:", error);
-      // On error, you could optionally revert the state by re-fetching
-      // fetchNotes();
     }
   };
 
   const deleteNote = async (id: string) => {
-    // Optimistic update for deletion
     setNotes((currentNotes) => currentNotes.filter((note) => note.id !== id));
 
     const { error } = await supabase.from("sticky_notes").delete().eq("id", id);
     if (error) {
       console.error("Error deleting note:", error);
-      // fetchNotes(); // Revert on error
     }
   };
 
-  // --- Event Handlers for Pan and Zoom ---
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const scaleAmount = -e.deltaY * 0.001;
@@ -267,6 +260,7 @@ function App() {
               note={note}
               onDelete={deleteNote}
               onUpdate={updateNote}
+              currentUserId={session.user.id}
             />
           ))}
         </AnimatePresence>

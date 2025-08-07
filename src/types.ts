@@ -14,6 +14,7 @@ export interface StickyNote {
   tags: string[] | null;
   // author_idを追加
   author_id: string | null;
+  is_locked: boolean;
 }
 
 // プロフィール用の型を追加
