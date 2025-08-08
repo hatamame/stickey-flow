@@ -10,8 +10,8 @@ import { PlusSquare, LogOut, ZoomIn, Move } from "lucide-react";
 import { ColorPalette } from "./components/ColorPalette";
 import { AccountSetup } from "./components/AccountSetup";
 
-const DEFAULT_NOTE_WIDTH = 200;
-const DEFAULT_NOTE_HEIGHT = 160;
+const DEFAULT_NOTE_WIDTH = 300;
+const DEFAULT_NOTE_HEIGHT = 300;
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 2;
 
