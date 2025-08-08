@@ -6,7 +6,7 @@ import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { AnimatePresence } from "framer-motion";
 import type { StickyNote, Profile } from "./types";
 import { StickyNoteItem } from "./components/StickyNoteItem";
-import { PlusSquare, LogOut, ZoomIn, ZoomOut, Move } from "lucide-react";
+import { PlusSquare, LogOut, ZoomIn, Move } from "lucide-react";
 import { ColorPalette } from "./components/ColorPalette";
 import { AccountSetup } from "./components/AccountSetup";
 
