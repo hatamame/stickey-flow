@@ -6,7 +6,7 @@ import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { AnimatePresence } from "framer-motion";
 import type { StickyNote, Profile } from "./types";
 import { StickyNoteItem } from "./components/StickyNoteItem";
-import { PlusSquare, LogOut, ZoomIn, Move } from "lucide-react";
+import { PlusSquare, LogOut, ZoomIn, ZoomOut, Move } from "lucide-react";
 import { ColorPalette } from "./components/ColorPalette";
 import { AccountSetup } from "./components/AccountSetup";
 
@@ -23,7 +23,6 @@ function App() {
   const [selectedColor, setSelectedColor] =
     useState<StickyNote["color"]>("yellow");
 
-  // --- Board State ---
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -72,13 +71,42 @@ function App() {
   const fetchNotes = async () => {
     const { data, error } = await supabase
       .from("sticky_notes")
-      .select("*, author:profiles(username)")
+      .select(
+        "*, author:profiles!sticky_notes_author_id_fkey(username), comments(*, author:profiles(username)), note_votes(user_id)"
+      )
       .order("created_at", { ascending: true });
 
     if (error) {
       console.error("Error fetching notes:", error);
+      setNotes([]);
+      return;
+    }
+
+    if (data) {
+      const formattedNotes = data
+        .map((note) => {
+          if (typeof note !== "object" || note === null) {
+            return null;
+          }
+          const voters =
+            note.note_votes && Array.isArray(note.note_votes)
+              ? note.note_votes.map((v: any) => v?.user_id).filter(Boolean)
+              : [];
+          const comments =
+            note.comments && Array.isArray(note.comments) ? note.comments : [];
+
+          return {
+            ...note,
+            voters,
+            comments,
+            votes: voters.length,
+          };
+        })
+        .filter((note): note is StickyNote => note !== null);
+
+      setNotes(formattedNotes);
     } else {
-      setNotes(data as any);
+      setNotes([]);
     }
   };
 
@@ -88,29 +116,9 @@ function App() {
     fetchNotes();
 
     const channel = supabase
-      .channel("sticky_notes_changes")
-      .on<StickyNote>(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "sticky_notes" },
-        (payload: any) => {
-          if (payload.eventType === "INSERT") {
-            fetchNotes();
-          }
-          if (payload.eventType === "UPDATE") {
-            setNotes((currentNotes) =>
-              currentNotes.map((note) =>
-                note.id === payload.new.id
-                  ? { ...note, ...payload.new, author: note.author }
-                  : note
-              )
-            );
-          }
-          if (payload.eventType === "DELETE") {
-            setNotes((currentNotes) =>
-              currentNotes.filter((note) => note.id !== payload.old.id)
-            );
-          }
-        }
+      .channel("sticky_notes_realtime_final")
+      .on("postgres_changes", { event: "*", schema: "public" }, () =>
+        fetchNotes()
       )
       .subscribe();
 
@@ -121,7 +129,6 @@ function App() {
 
   const createNote = async (clientX: number, clientY: number) => {
     if (!session) return;
-
     const boardX = (clientX - position.x) / scale - DEFAULT_NOTE_WIDTH / 2;
     const boardY = (clientY - position.y) / scale - DEFAULT_NOTE_HEIGHT / 2;
 
@@ -129,40 +136,47 @@ function App() {
       position: { x: boardX, y: boardY },
       size: { width: DEFAULT_NOTE_WIDTH, height: DEFAULT_NOTE_HEIGHT },
       color: selectedColor,
-      content: "",
       author_id: session.user.id,
-      tags: [],
-      is_locked: true, // Add this line to set the default lock state
+      is_locked: false,
     });
-    if (error) console.error("Error creating note:", error);
+
+    if (error) {
+      console.error("Error creating note:", error);
+      alert("付箋の作成に失敗しました。");
+    }
   };
 
-  const updateNote = async (id: string, updates: Partial<StickyNote>) => {
+  // ★ 修正点: 楽観的更新のためのローカルstate更新関数
+  const updateNoteLocal = (id: string, updates: Partial<StickyNote>) => {
     setNotes((currentNotes) =>
       currentNotes.map((note) =>
         note.id === id ? { ...note, ...updates } : note
       )
     );
-
-    const { error } = await supabase
-      .from("sticky_notes")
-      .update({ ...updates, updated_at: new Date().toISOString() })
-      .eq("id", id);
-
-    if (error) {
-      console.error("Error updating note:", error);
-    }
   };
 
-  const deleteNote = async (id: string) => {
+  // ★ 修正点: 楽観的削除
+  const deleteNote = (id: string) => {
+    const originalNotes = [...notes];
+    // 1. UIを即時更新
     setNotes((currentNotes) => currentNotes.filter((note) => note.id !== id));
 
-    const { error } = await supabase.from("sticky_notes").delete().eq("id", id);
-    if (error) {
-      console.error("Error deleting note:", error);
-    }
+    // 2. DBから削除
+    (async () => {
+      const { error } = await supabase
+        .from("sticky_notes")
+        .delete()
+        .eq("id", id);
+      if (error) {
+        console.error("Delete failed, rolling back.", error);
+        alert("削除に失敗しました。");
+        // 3. エラー時にUIを元に戻す
+        setNotes(originalNotes);
+      }
+    })();
   };
 
+  // --- Pan and Zoom Handlers ---
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const scaleAmount = -e.deltaY * 0.001;
@@ -170,17 +184,13 @@ function App() {
       Math.max(MIN_SCALE, scale + scaleAmount),
       MAX_SCALE
     );
-
     const mouseX = e.clientX - position.x;
     const mouseY = e.clientY - position.y;
-
     const newPositionX = position.x - (mouseX / scale) * (newScale - scale);
     const newPositionY = position.y - (mouseY / scale) * (newScale - scale);
-
     setScale(newScale);
     setPosition({ x: newPositionX, y: newPositionY });
   };
-
   const handleMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest(".react-rnd")) return;
     e.preventDefault();
@@ -190,7 +200,6 @@ function App() {
       y: e.clientY - position.y,
     });
   };
-
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isPanning) return;
     e.preventDefault();
@@ -199,20 +208,15 @@ function App() {
       y: e.clientY - startPanPosition.y,
     });
   };
+  const handleMouseUpOrLeave = () => setIsPanning(false);
 
-  const handleMouseUpOrLeave = () => {
-    setIsPanning(false);
-  };
-
-  if (loadingProfile) {
+  if (loadingProfile)
     return (
       <div className="w-full h-screen flex justify-center items-center bg-gray-100">
         読み込み中...
       </div>
     );
-  }
-
-  if (!session) {
+  if (!session)
     return (
       <div className="w-full h-screen flex justify-center items-center bg-gray-100">
         <div className="w-full max-w-md p-8 bg-white shadow-lg rounded-lg">
@@ -225,11 +229,8 @@ function App() {
         </div>
       </div>
     );
-  }
-
-  if (!profile?.username) {
+  if (!profile?.username)
     return <AccountSetup session={session} onProfileUpdated={getProfile} />;
-  }
 
   return (
     <div
@@ -259,23 +260,21 @@ function App() {
               key={note.id}
               note={note}
               onDelete={deleteNote}
-              onUpdate={updateNote}
+              onUpdateLocal={updateNoteLocal}
               currentUserId={session.user.id}
+              supabase={supabase}
             />
           ))}
         </AnimatePresence>
       </div>
-
       <div className="fixed top-4 right-4 flex flex-col gap-2">
         <button
           onClick={() => supabase.auth.signOut()}
           className="flex items-center gap-2 bg-red-500 text-white px-4 py-2 rounded-lg shadow-md hover:bg-red-600 transition-colors"
         >
-          <LogOut size={18} />
-          ログアウト
+          <LogOut size={18} /> ログアウト
         </button>
       </div>
-
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 p-2 bg-white rounded-full shadow-lg pointer-events-none">
         <Move size={20} className="text-gray-500" />
         <p className="text-sm text-gray-700">ドラッグで移動</p>
@@ -283,18 +282,15 @@ function App() {
         <ZoomIn size={20} className="text-gray-500" />
         <p className="text-sm text-gray-700">ホイールでズーム</p>
       </div>
-
       <div className="fixed bottom-4 right-4 flex items-center gap-4">
         <ColorPalette
           selectedColor={selectedColor}
           onColorSelect={setSelectedColor}
         />
         <button
-          onClick={() => {
-            const centerX = window.innerWidth / 2;
-            const centerY = window.innerHeight / 2;
-            createNote(centerX, centerY);
-          }}
+          onClick={() =>
+            createNote(window.innerWidth / 2, window.innerHeight / 2)
+          }
           className="p-3 bg-blue-500 text-white rounded-full shadow-lg hover:bg-blue-600"
           title="画面中央に付箋を追加"
         >

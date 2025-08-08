@@ -15,6 +15,8 @@ export interface StickyNote {
   // author_idを追加
   author_id: string | null;
   is_locked: boolean;
+  comments?: Comment[]; // コメントの配列
+  voters?: string[]; // 投票したユーザーIDの配列
 }
 
 // プロフィール用の型を追加
@@ -23,4 +25,14 @@ export interface Profile {
   username: string | null;
   avatar_url: string | null;
   updated_at: string | null;
+}
+
+//コメント用の型
+export interface Comment {
+  id: string;
+  note_id: string;
+  author_id: string;
+  author?: { username:string }; // コメント投稿者の情報
+  content: string;
+  created_at: string;
 }
