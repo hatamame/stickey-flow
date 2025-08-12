@@ -42,7 +42,7 @@ export const AccountSetup = ({ session, onProfileUpdated }: Props) => {
       <div className="w-full max-w-md p-8 bg-white shadow-lg rounded-lg">
         <h2 className="text-2xl font-bold mb-4 text-center">ようこそ！</h2>
         <p className="text-center text-gray-600 mb-6">
-          始める前に、表示されるユーザー名を設定してください。
+          表示されるユーザー名を設定してください。
         </p>
         <div className="space-y-4">
           <div>

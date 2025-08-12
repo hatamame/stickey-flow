@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "./lib/supabaseClient";
 import type { Session } from "@supabase/supabase-js";
 import { Auth } from "@supabase/auth-ui-react";
@@ -15,6 +15,16 @@ const DEFAULT_NOTE_HEIGHT = 300;
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 2;
 
+// ★ 修正点: TouchListを配列のように扱わず、インデックスでアクセスする
+const getDistance = (touches: React.TouchList): number => {
+  const touch1 = touches[0];
+  const touch2 = touches[1];
+  return Math.sqrt(
+    Math.pow(touch1.clientX - touch2.clientX, 2) +
+      Math.pow(touch1.clientY - touch2.clientY, 2)
+  );
+};
+
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -27,6 +37,8 @@ function App() {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [startPanPosition, setStartPanPosition] = useState({ x: 0, y: 0 });
+
+  const initialPinchDistance = useRef<number | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -146,7 +158,6 @@ function App() {
     }
   };
 
-  // ★ 修正点: 楽観的更新のためのローカルstate更新関数
   const updateNoteLocal = (id: string, updates: Partial<StickyNote>) => {
     setNotes((currentNotes) =>
       currentNotes.map((note) =>
@@ -155,13 +166,10 @@ function App() {
     );
   };
 
-  // ★ 修正点: 楽観的削除
   const deleteNote = (id: string) => {
     const originalNotes = [...notes];
-    // 1. UIを即時更新
     setNotes((currentNotes) => currentNotes.filter((note) => note.id !== id));
 
-    // 2. DBから削除
     (async () => {
       const { error } = await supabase
         .from("sticky_notes")
@@ -170,7 +178,6 @@ function App() {
       if (error) {
         console.error("Delete failed, rolling back.", error);
         alert("削除に失敗しました。");
-        // 3. エラー時にUIを元に戻す
         setNotes(originalNotes);
       }
     })();
@@ -210,6 +217,55 @@ function App() {
   };
   const handleMouseUpOrLeave = () => setIsPanning(false);
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if ((e.target as HTMLElement).closest(".react-rnd")) return;
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      setIsPanning(true);
+      setStartPanPosition({
+        x: e.touches[0].clientX - position.x,
+        y: e.touches[0].clientY - position.y,
+      });
+    } else if (e.touches.length === 2) {
+      initialPinchDistance.current = getDistance(e.touches);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 1 && isPanning) {
+      setPosition({
+        x: e.touches[0].clientX - startPanPosition.x,
+        y: e.touches[0].clientY - startPanPosition.y,
+      });
+    } else if (e.touches.length === 2 && initialPinchDistance.current) {
+      const newDistance = getDistance(e.touches);
+      const scaleAmount = newDistance / initialPinchDistance.current;
+      const newScale = Math.min(
+        Math.max(MIN_SCALE, scale * scaleAmount),
+        MAX_SCALE
+      );
+
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const midPointX = (touch1.clientX + touch2.clientX) / 2;
+      const midPointY = (touch1.clientY + touch2.clientY) / 2;
+
+      const newPositionX =
+        midPointX - ((midPointX - position.x) / scale) * newScale;
+      const newPositionY =
+        midPointY - ((midPointY - position.y) / scale) * newScale;
+
+      setScale(newScale);
+      setPosition({ x: newPositionX, y: newPositionY });
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsPanning(false);
+    initialPinchDistance.current = null;
+  };
+
   if (loadingProfile)
     return (
       <div className="w-full h-screen flex justify-center items-center bg-gray-100">
@@ -235,12 +291,16 @@ function App() {
   return (
     <div
       className="w-screen h-screen bg-gray-100 relative overflow-hidden"
-      style={{ cursor: isPanning ? "grabbing" : "grab" }}
+      style={{ cursor: isPanning ? "grabbing" : "grab", touchAction: "none" }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUpOrLeave}
       onMouseLeave={handleMouseUpOrLeave}
       onWheel={handleWheel}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
       onDoubleClick={(e) => {
         if ((e.target as HTMLElement).closest(".react-rnd")) return;
         createNote(e.clientX, e.clientY);
@@ -275,7 +335,7 @@ function App() {
           <LogOut size={18} /> ログアウト
         </button>
       </div>
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 p-2 bg-white rounded-full shadow-lg pointer-events-none">
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-2 p-2 bg-white rounded-full shadow-lg pointer-events-none">
         <Move size={20} className="text-gray-500" />
         <p className="text-sm text-gray-700">ドラッグで移動</p>
         <div className="w-px h-4 bg-gray-300 mx-2"></div>
